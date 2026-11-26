@@ -11,6 +11,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   release-wasi-bundle:
@@ -224,3 +226,12 @@ jobs:
             dist/wasi-bundle/wasi-bundle-manifest.json \
             dist/wasi-bundle/SHA512SUMS.txt \
             --clobber
+
+      - name: Attest SLSA Build Provenance for Real WASI Bundle
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/wasi-bundle/sqlite3-wasm32-wasi.wasm
+            dist/wasi-bundle/php-wasm32-wasi.wasm
+            dist/wasi-bundle/ruby-wasm32-wasi.wasm
+            dist/wasi-bundle/wasi-bundle-manifest.json

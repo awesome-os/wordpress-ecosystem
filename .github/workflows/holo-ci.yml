@@ -1,0 +1,14 @@
+name: Holo-CI
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  holo-ci:
+    uses: awesome-os/maintenance-workflows/.github/workflows/reusable-holo-ci.yml@v1

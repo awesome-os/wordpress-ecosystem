@@ -1,0 +1,20 @@
+{
+  "schema": "holo-ci.v1",
+  "name": "wordpress-ecosystem",
+  "kind": "monorepo",
+  "tests": [
+    "node --test packages/wp-env-wasi/wp-env-wasi.test.mts",
+    "node --test packages/wp-block-compiler/wp-block-compiler.test.mts",
+    "node --test packages/gutenberg-bridge/gutenberg-app.test.mts",
+    "node --test packages/site-cms/cms-core.test.mts",
+    "node --test packages/site-cms/server.test.mts"
+  ],
+  "docs": [
+    "README.md",
+    "docs/WORDPRESS-JS-CONSOLIDATION-AUDIT.md"
+  ],
+  "guards": {
+    "zeroGhost": true,
+    "zeroCasV1": true
+  }
+}

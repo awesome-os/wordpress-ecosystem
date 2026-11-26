@@ -1,0 +1,35 @@
+name: Holo-E2E
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  holo-e2e:
+    uses: awesome-os/maintenance-workflows/.github/workflows/reusable-holo-e2e.yml@v1
+    with:
+      config-path: holo-ci.json
+      holo-ci-ref: v1
+      e2e-command: |
+        node --test packages/wp-env-wasi/wp-env-wasi.test.mts packages/wp-block-compiler/wp-block-compiler.test.mts packages/gutenberg-bridge/gutenberg-app.test.mts packages/site-cms/cms-core.test.mts packages/site-cms/server.test.mts
+        node --input-type=module -e "
+          import fs from 'node:fs';
+          import assert from 'node:assert/strict';
+          import { compilePageToHtml } from './packages/wp-block-compiler/wp-block-compiler.mts';
+          const html = compilePageToHtml({
+            title: 'Holo-E2E Gutenberg Preview',
+            slug: 'holo-e2e-preview',
+            format: 'gutenberg-blocks',
+            domain: 'awesome-os.com',
+            body: '<!-- wp:heading {\"level\":2} --><h2>Holo v11 Sovereign WordPress</h2><!-- /wp:heading --><!-- wp:paragraph --><p>Zero-X11 Lavapipe E2E Gutenberg preview.</p><!-- /wp:paragraph -->'
+          });
+          assert.ok(html.includes('<b8g-section'));
+          fs.writeFileSync(process.env.HOLO_E2E_ARTIFACTS + '/gutenberg-preview.html', html, 'utf8');
+        "

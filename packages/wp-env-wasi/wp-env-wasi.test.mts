@@ -8,10 +8,14 @@ import {
   B8G_ABI_MAGIC_V3,
   HOLO_WASI_HOST_BINARY,
   SUPPORTED_PHP_VERSIONS,
+  WP_WASI_BUNDLE_RELEASE_TAG,
+  WP_WASI_BUNDLE_REPO,
   buildWpEnvHoloV11Lock,
   generateWpConfigPhp,
   parseWpEnvJson,
   resolvePhpWasmCas,
+  resolveWasiBundleRelease,
+  validateWasmBinaryHeader,
   WpEnvWasiManager,
   type WpEnvHoloV11Lock,
   type WpEnvInstance,
@@ -297,5 +301,80 @@ describe('WpEnvWasiManager lifecycle', () => {
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('validateWasmBinaryHeader', () => {
+  it('accepts valid 8-byte WebAssembly magic and version headers', () => {
+    const minimalHeader = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
+    assert.equal(validateWasmBinaryHeader(minimalHeader), true);
+    assert.equal(WebAssembly.validate(minimalHeader), true);
+
+    const withSection = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x04, 0x01, 0x60, 0x00, 0x00]);
+    assert.equal(validateWasmBinaryHeader(withSection), true);
+    assert.equal(WebAssembly.validate(withSection), true);
+  });
+
+  it('rejects empty, truncated, and corrupted headers', () => {
+    assert.equal(validateWasmBinaryHeader(new Uint8Array(0)), false);
+    assert.equal(validateWasmBinaryHeader(new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00])), false);
+    assert.equal(validateWasmBinaryHeader(new Uint8Array([0x7f, 0x45, 0x4c, 0x46, 0x01, 0x00, 0x00, 0x00])), false);
+    assert.equal(validateWasmBinaryHeader(new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x02, 0x00, 0x00, 0x00])), false);
+    assert.equal(validateWasmBinaryHeader(new Uint8Array([0x00, 0x61, 0x73, 0x6e, 0x01, 0x00, 0x00, 0x00])), false);
+  });
+});
+
+describe('resolveWasiBundleRelease', () => {
+  it('resolves canonical v11-wp-wasi-latest metadata and download URLs for PHP, SQLite3, and Ruby WASI runtimes', () => {
+    const bundle = resolveWasiBundleRelease();
+    assert.equal(bundle.schema, 'holo-v11.wp-wasi-bundle.v1');
+    assert.equal(bundle.abiMagic, B8G_ABI_MAGIC_V3);
+    assert.equal(bundle.repository, WP_WASI_BUNDLE_REPO);
+    assert.equal(bundle.releaseTag, WP_WASI_BUNDLE_RELEASE_TAG);
+    assert.equal(
+      bundle.baseDownloadUrl,
+      'https://github.com/awesome-os/wordpress-ecosystem/releases/download/v11-wp-wasi-latest',
+    );
+    assert.equal(
+      bundle.manifestUrl,
+      'https://github.com/awesome-os/wordpress-ecosystem/releases/download/v11-wp-wasi-latest/wasi-bundle-manifest.json',
+    );
+    assert.equal(
+      bundle.checksumsUrl,
+      'https://github.com/awesome-os/wordpress-ecosystem/releases/download/v11-wp-wasi-latest/SHA512SUMS.txt',
+    );
+
+    assert.equal(bundle.artifacts.php.filename, 'php-wasm32-wasi.wasm');
+    assert.equal(
+      bundle.artifacts.php.downloadUrl,
+      'https://github.com/awesome-os/wordpress-ecosystem/releases/download/v11-wp-wasi-latest/php-wasm32-wasi.wasm',
+    );
+    assert.equal(bundle.artifacts.sqlite3.filename, 'sqlite3-wasm32-wasi.wasm');
+    assert.equal(
+      bundle.artifacts.sqlite3.downloadUrl,
+      'https://github.com/awesome-os/wordpress-ecosystem/releases/download/v11-wp-wasi-latest/sqlite3-wasm32-wasi.wasm',
+    );
+    assert.equal(bundle.artifacts.ruby.filename, 'ruby-wasm32-wasi.wasm');
+    assert.equal(
+      bundle.artifacts.ruby.downloadUrl,
+      'https://github.com/awesome-os/wordpress-ecosystem/releases/download/v11-wp-wasi-latest/ruby-wasm32-wasi.wasm',
+    );
+
+    assert.deepEqual(bundle.downloadUrls, {
+      'php-wasm32-wasi.wasm':
+        'https://github.com/awesome-os/wordpress-ecosystem/releases/download/v11-wp-wasi-latest/php-wasm32-wasi.wasm',
+      'sqlite3-wasm32-wasi.wasm':
+        'https://github.com/awesome-os/wordpress-ecosystem/releases/download/v11-wp-wasi-latest/sqlite3-wasm32-wasi.wasm',
+      'ruby-wasm32-wasi.wasm':
+        'https://github.com/awesome-os/wordpress-ecosystem/releases/download/v11-wp-wasi-latest/ruby-wasm32-wasi.wasm',
+    });
+
+    const custom = resolveWasiBundleRelease('custom-org/custom-repo', 'v11-wp-wasi-test');
+    assert.equal(custom.repository, 'custom-org/custom-repo');
+    assert.equal(custom.releaseTag, 'v11-wp-wasi-test');
+    assert.equal(
+      custom.downloadUrls['php-wasm32-wasi.wasm'],
+      'https://github.com/custom-org/custom-repo/releases/download/v11-wp-wasi-test/php-wasm32-wasi.wasm',
+    );
   });
 });

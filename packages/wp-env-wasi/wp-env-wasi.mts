@@ -6,8 +6,39 @@ export const B8G_ABI_MAGIC_V3 = '0x33564742' as const;
 export const HOLO_CAS_STORE_V11 = 'v11' as const;
 export const HOLO_CAS_ROOT_DEFAULT = '/var/lib/b8g/cas/v11' as const;
 export const HOLO_WASI_HOST_BINARY = 'holo-wasi-host-b8g.wasm' as const;
+export const WP_WASI_BUNDLE_REPO = 'awesome-os/wordpress-ecosystem' as const;
+export const WP_WASI_BUNDLE_RELEASE_TAG = 'v11-wp-wasi-latest' as const;
 
 export type WpPhpVersion = '8.2' | '8.3' | '8.4' | '8.5' | '8.6';
+
+export interface WasiBundleArtifactSpec {
+  readonly id: 'php' | 'sqlite3' | 'ruby';
+  readonly filename: 'php-wasm32-wasi.wasm' | 'sqlite3-wasm32-wasi.wasm' | 'ruby-wasm32-wasi.wasm';
+  readonly runtime: string;
+  readonly abiMagic: typeof B8G_ABI_MAGIC_V3;
+  readonly downloadUrl: string;
+  readonly upstreamSource: string;
+}
+
+export interface WasiBundleReleaseResolution {
+  readonly schema: 'holo-v11.wp-wasi-bundle.v1';
+  readonly abiMagic: typeof B8G_ABI_MAGIC_V3;
+  readonly repository: string;
+  readonly releaseTag: string;
+  readonly baseDownloadUrl: string;
+  readonly manifestUrl: string;
+  readonly checksumsUrl: string;
+  readonly artifacts: {
+    readonly php: WasiBundleArtifactSpec;
+    readonly sqlite3: WasiBundleArtifactSpec;
+    readonly ruby: WasiBundleArtifactSpec;
+  };
+  readonly downloadUrls: {
+    readonly 'php-wasm32-wasi.wasm': string;
+    readonly 'sqlite3-wasm32-wasi.wasm': string;
+    readonly 'ruby-wasm32-wasi.wasm': string;
+  };
+}
 
 export interface WpEnvConfig {
   phpVersion: WpPhpVersion;
@@ -250,6 +281,82 @@ function atomicWriteFileSync(targetPath: string, content: string): void {
   const tmpPath = `${targetPath}.tmp.${process.pid}.${crypto.randomBytes(6).toString('hex')}`;
   fs.writeFileSync(tmpPath, content, 'utf8');
   fs.renameSync(tmpPath, targetPath);
+}
+
+/**
+ * Validate WebAssembly binary magic (`00 61 73 6d`) and version (`01 00 00 00`) header.
+ */
+export function validateWasmBinaryHeader(bytes: Uint8Array): boolean {
+  if (!(bytes instanceof Uint8Array) || bytes.length < 8) {
+    return false;
+  }
+  return (
+    bytes[0] === 0x00 &&
+    bytes[1] === 0x61 &&
+    bytes[2] === 0x73 &&
+    bytes[3] === 0x6d &&
+    bytes[4] === 0x01 &&
+    bytes[5] === 0x00 &&
+    bytes[6] === 0x00 &&
+    bytes[7] === 0x00
+  );
+}
+
+/**
+ * Resolve canonical metadata and GitHub Release download URLs for the `v11-wp-wasi-latest` WASI runtime bundle.
+ */
+export function resolveWasiBundleRelease(
+  repository: string = WP_WASI_BUNDLE_REPO,
+  releaseTag: string = WP_WASI_BUNDLE_RELEASE_TAG,
+): WasiBundleReleaseResolution {
+  const cleanRepo = repository.replace(/^\/+|\/+$/g, '') || WP_WASI_BUNDLE_REPO;
+  const cleanTag = releaseTag.trim() || WP_WASI_BUNDLE_RELEASE_TAG;
+  const baseDownloadUrl = `https://github.com/${cleanRepo}/releases/download/${cleanTag}`;
+
+  const phpUrl = `${baseDownloadUrl}/php-wasm32-wasi.wasm`;
+  const sqlite3Url = `${baseDownloadUrl}/sqlite3-wasm32-wasi.wasm`;
+  const rubyUrl = `${baseDownloadUrl}/ruby-wasm32-wasi.wasm`;
+
+  return {
+    schema: 'holo-v11.wp-wasi-bundle.v1',
+    abiMagic: B8G_ABI_MAGIC_V3,
+    repository: cleanRepo,
+    releaseTag: cleanTag,
+    baseDownloadUrl,
+    manifestUrl: `${baseDownloadUrl}/wasi-bundle-manifest.json`,
+    checksumsUrl: `${baseDownloadUrl}/SHA512SUMS.txt`,
+    artifacts: {
+      php: {
+        id: 'php',
+        filename: 'php-wasm32-wasi.wasm',
+        runtime: 'php-wasi-8.4',
+        abiMagic: B8G_ABI_MAGIC_V3,
+        downloadUrl: phpUrl,
+        upstreamSource: '@php-wasm/node-8-4',
+      },
+      sqlite3: {
+        id: 'sqlite3',
+        filename: 'sqlite3-wasm32-wasi.wasm',
+        runtime: 'sqlite3-wasi',
+        abiMagic: B8G_ABI_MAGIC_V3,
+        downloadUrl: sqlite3Url,
+        upstreamSource: 'awesome-os/upstream-mirrors@v11-max-5os-latest/libsqlite3-wasm32-wasi.wasm',
+      },
+      ruby: {
+        id: 'ruby',
+        filename: 'ruby-wasm32-wasi.wasm',
+        runtime: 'ruby-wasi-3.4',
+        abiMagic: B8G_ABI_MAGIC_V3,
+        downloadUrl: rubyUrl,
+        upstreamSource: 'ruby/ruby.wasm',
+      },
+    },
+    downloadUrls: {
+      'php-wasm32-wasi.wasm': phpUrl,
+      'sqlite3-wasm32-wasi.wasm': sqlite3Url,
+      'ruby-wasm32-wasi.wasm': rubyUrl,
+    },
+  };
 }
 
 /**

@@ -1,0 +1,226 @@
+name: Release Real WASI Runtime Bundle
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - main
+    paths:
+      - packages/wp-env-wasi/**
+      - .github/workflows/release-wasi-bundle.yml
+
+permissions:
+  contents: write
+
+jobs:
+  release-wasi-bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Fetch real upstream WASI binaries
+        id: fetch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/wasi-bundle work/php work/ruby
+
+          # 1. SQLite3 WASI (real Zig/WASI build from awesome-os/upstream-mirrors)
+          SQLITE_URL="https://github.com/awesome-os/upstream-mirrors/releases/download/v11-max-5os-latest/libsqlite3-wasm32-wasi.wasm"
+          echo "Downloading SQLite3 WASI from $SQLITE_URL"
+          curl -fsSL "$SQLITE_URL" -o dist/wasi-bundle/sqlite3-wasm32-wasi.wasm
+          echo "sqlite3_source=$SQLITE_URL" >> "$GITHUB_OUTPUT"
+
+          # 2. PHP WASI (real PHP 8.4 Wasm binary from official @php-wasm/node-8-4 with clean fallbacks)
+          PHP_SOURCE=""
+          pushd work/php >/dev/null
+          for pkg in "@php-wasm/node-8-4" "@php-wasm/web-8-4" "php-cgi-wasm"; do
+            rm -rf package *.tgz
+            if npm pack "$pkg" --silent; then
+              TARBALL="$(ls -1 *.tgz | head -n 1)"
+              tar -xzf "$TARBALL"
+              WASM_CANDIDATE="$(find package -type f -name '*.wasm' | grep -E 'asyncify/.*php_8_4\.wasm$' | head -n 1 || true)"
+              if [ -z "$WASM_CANDIDATE" ]; then
+                WASM_CANDIDATE="$(find package -type f -name '*.wasm' | grep -E 'php_8_4\.wasm$' | head -n 1 || true)"
+              fi
+              if [ -z "$WASM_CANDIDATE" ]; then
+                WASM_CANDIDATE="$(find package -type f -name '*.wasm' | sort | head -n 1 || true)"
+              fi
+              if [ -n "$WASM_CANDIDATE" ] && [ -s "$WASM_CANDIDATE" ]; then
+                cp "$WASM_CANDIDATE" ../../dist/wasi-bundle/php-wasm32-wasi.wasm
+                PHP_SOURCE="npm:$pkg#$WASM_CANDIDATE"
+                echo "Extracted PHP Wasm from $PHP_SOURCE"
+                break
+              fi
+            fi
+          done
+          popd >/dev/null
+          if [ -z "$PHP_SOURCE" ]; then
+            echo "Failed to acquire real PHP Wasm binary from @php-wasm/node-8-4, @php-wasm/web-8-4, or php-cgi-wasm" >&2
+            exit 1
+          fi
+          echo "php_source=$PHP_SOURCE" >> "$GITHUB_OUTPUT"
+
+          # 3. Ruby WASI (real ruby.wasm release from ruby/ruby.wasm)
+          RUBY_RELEASE_JSON="$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" https://api.github.com/repos/ruby/ruby.wasm/releases/latest)"
+          RUBY_ASSET_URL="$(printf '%s' "$RUBY_RELEASE_JSON" | node --input-type=module -e "
+            import fs from 'node:fs';
+            const data = JSON.parse(fs.readFileSync(0, 'utf8'));
+            const assets = Array.isArray(data.assets) ? data.assets : [];
+            const pick =
+              assets.find((a) => a.name === 'ruby-3.4-wasm32-unknown-wasip1-full.tar.gz') ||
+              assets.find((a) => /wasm32-unknown-wasip1-full\.tar\.gz$/.test(a.name)) ||
+              assets.find((a) => /wasm32-unknown-wasi-full.*\.(tar\.gz|tgz)$/.test(a.name)) ||
+              assets.find((a) => a.name === 'ruby.wasm');
+            if (!pick) {
+              console.error('No matching ruby.wasm release asset found:', assets.map((a) => a.name));
+              process.exit(1);
+            }
+            process.stdout.write(pick.browser_download_url);
+          ")"
+          echo "Downloading Ruby WASI from $RUBY_ASSET_URL"
+          pushd work/ruby >/dev/null
+          if [[ "$RUBY_ASSET_URL" == *.wasm ]]; then
+            curl -fsSL "$RUBY_ASSET_URL" -o ../../dist/wasi-bundle/ruby-wasm32-wasi.wasm
+          else
+            curl -fsSL "$RUBY_ASSET_URL" -o ruby-wasi.tar.gz
+            tar -xzf ruby-wasi.tar.gz
+            RUBY_BIN="$(find . -type f -path '*/usr/local/bin/ruby' | head -n 1 || true)"
+            if [ -z "$RUBY_BIN" ]; then
+              RUBY_BIN="$(find . -type f -name 'ruby.wasm' | head -n 1 || true)"
+            fi
+            if [ -z "$RUBY_BIN" ] || [ ! -s "$RUBY_BIN" ]; then
+              echo "Failed to locate usr/local/bin/ruby inside $RUBY_ASSET_URL" >&2
+              exit 1
+            fi
+            cp "$RUBY_BIN" ../../dist/wasi-bundle/ruby-wasm32-wasi.wasm
+          fi
+          popd >/dev/null
+          echo "ruby_source=$RUBY_ASSET_URL" >> "$GITHUB_OUTPUT"
+
+          ls -lh dist/wasi-bundle/
+
+      - name: Validate real WebAssembly binaries and generate manifest + SHA512SUMS
+        env:
+          PHP_SOURCE: ${{ steps.fetch.outputs.php_source }}
+          SQLITE3_SOURCE: ${{ steps.fetch.outputs.sqlite3_source }}
+          RUBY_SOURCE: ${{ steps.fetch.outputs.ruby_source }}
+        run: |
+          node --input-type=module -e "
+            import assert from 'node:assert/strict';
+            import crypto from 'node:crypto';
+            import fs from 'node:fs';
+            import path from 'node:path';
+            import { validateWasmBinaryHeader } from './packages/wp-env-wasi/wp-env-wasi.mts';
+
+            const bundleDir = path.resolve('dist/wasi-bundle');
+            const specs = [
+              {
+                id: 'sqlite3',
+                filename: 'sqlite3-wasm32-wasi.wasm',
+                upstreamSource: process.env.SQLITE3_SOURCE,
+              },
+              {
+                id: 'php',
+                filename: 'php-wasm32-wasi.wasm',
+                upstreamSource: process.env.PHP_SOURCE,
+              },
+              {
+                id: 'ruby',
+                filename: 'ruby-wasm32-wasi.wasm',
+                upstreamSource: process.env.RUBY_SOURCE,
+              },
+            ];
+
+            const artifacts = [];
+            const checksumLines = [];
+
+            for (const spec of specs) {
+              const filePath = path.join(bundleDir, spec.filename);
+              assert.ok(fs.existsSync(filePath), 'Missing WASI binary: ' + spec.filename);
+              const bytes = fs.readFileSync(filePath);
+              assert.ok(
+                bytes.byteLength > 50 * 1024,
+                spec.filename + ' must exceed 50 KB (got ' + bytes.byteLength + ' bytes)',
+              );
+              assert.equal(
+                bytes[0] === 0x00 &&
+                  bytes[1] === 0x61 &&
+                  bytes[2] === 0x73 &&
+                  bytes[3] === 0x6d &&
+                  bytes[4] === 0x01 &&
+                  bytes[5] === 0x00 &&
+                  bytes[6] === 0x00 &&
+                  bytes[7] === 0x00,
+                true,
+                spec.filename + ' failed exact Wasm magic/version check',
+              );
+              assert.equal(
+                validateWasmBinaryHeader(bytes),
+                true,
+                spec.filename + ' failed validateWasmBinaryHeader()',
+              );
+              assert.equal(
+                WebAssembly.validate(bytes),
+                true,
+                spec.filename + ' failed WebAssembly.validate()',
+              );
+
+              const sha512 = crypto.createHash('sha512').update(bytes).digest('hex');
+              artifacts.push({
+                id: spec.id,
+                filename: spec.filename,
+                bytes: bytes.byteLength,
+                sha512,
+                wasmValidated: true,
+                upstreamSource: spec.upstreamSource,
+              });
+              checksumLines.push(sha512 + '  ' + spec.filename);
+              console.log('VERIFIED:', spec.filename, bytes.byteLength, 'bytes', 'sha512=' + sha512.slice(0, 16) + '...');
+            }
+
+            const manifest = {
+              schema: 'holo-v11.wasi-bundle-manifest.v1',
+              repository: 'awesome-os/wordpress-ecosystem',
+              releaseTag: 'v11-wp-wasi-latest',
+              generatedAt: new Date().toISOString(),
+              artifacts,
+            };
+
+            const manifestPath = path.join(bundleDir, 'wasi-bundle-manifest.json');
+            const manifestJson = JSON.stringify(manifest, null, 2) + '\n';
+            fs.writeFileSync(manifestPath, manifestJson, 'utf8');
+
+            const manifestSha512 = crypto.createHash('sha512').update(manifestJson, 'utf8').digest('hex');
+            checksumLines.push(manifestSha512 + '  wasi-bundle-manifest.json');
+
+            const sumsPath = path.join(bundleDir, 'SHA512SUMS.txt');
+            fs.writeFileSync(sumsPath, checksumLines.join('\n') + '\n', 'utf8');
+          "
+
+      - name: Create or update v11-wp-wasi-latest GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="v11-wp-wasi-latest"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --target "${{ github.sha }}" \
+              --title "WordPress Ecosystem Real WASI Runtime Bundle ($TAG)" \
+              --notes "Verified real WASI/Wasm runtime binaries (php-wasm32-wasi.wasm, sqlite3-wasm32-wasi.wasm, ruby-wasm32-wasi.wasm), wasi-bundle-manifest.json, and SHA512SUMS.txt validated via WebAssembly.validate()."
+          fi
+          gh release upload "$TAG" \
+            dist/wasi-bundle/sqlite3-wasm32-wasi.wasm \
+            dist/wasi-bundle/php-wasm32-wasi.wasm \
+            dist/wasi-bundle/ruby-wasm32-wasi.wasm \
+            dist/wasi-bundle/wasi-bundle-manifest.json \
+            dist/wasi-bundle/SHA512SUMS.txt \
+            --clobber

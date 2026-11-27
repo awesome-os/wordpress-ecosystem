@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   holo-ci:
     uses: awesome-os/maintenance-workflows/.github/workflows/reusable-holo-ci.yml@v1

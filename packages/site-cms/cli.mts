@@ -30,8 +30,7 @@ function parseArgs(argv: string[]): { cmd: string; port: number; daemon: boolean
 
 async function isAlreadyRunning(port: number): Promise<Record<string, unknown> | null> {
   try {
-    // holo-ci-allow-guard: B8G016-studio-ui (CLI status probe against local CMS studio)
-    const r = await fetch(`http://127.0.0.1:${port}/api/health`, {
+    const r = await fetch(`http://127.0.0.1:${port}/api/health`, { // holo-ci-allow-guard: B8G016-studio-ui
       signal: AbortSignal.timeout(700),
     });
     if (!r.ok) return null;
@@ -56,8 +55,7 @@ async function main(): Promise<void> {
 
   if (running) {
     console.log(
-      // holo-ci-allow-guard: B8G016-studio-ui
-      `b8g-site-cms already ONLINE at http://127.0.0.1:${port}/ (PID ${running.pid}, sites: ${running.sites}, pages: ${running.pages})`,
+      `b8g-site-cms already ONLINE at http://127.0.0.1:${port}/ (PID ${running.pid}, sites: ${running.sites}, pages: ${running.pages})`, // holo-ci-allow-guard: B8G016-studio-ui
     );
     return;
   }
@@ -75,8 +73,7 @@ async function main(): Promise<void> {
       await new Promise((r) => setTimeout(r, 150));
       const health = await isAlreadyRunning(port);
       if (health) {
-        // holo-ci-allow-guard: B8G016-studio-ui
-        console.log(`b8g-site-cms daemon ONLINE at http://127.0.0.1:${port}/ (PID ${health.pid})`);
+        console.log(`b8g-site-cms daemon ONLINE at http://127.0.0.1:${port}/ (PID ${health.pid})`); // holo-ci-allow-guard: B8G016-studio-ui
         return;
       }
     }

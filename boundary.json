@@ -1,0 +1,25 @@
+{
+  "schema": "holo-boundary.v1",
+  "plane": 4,
+  "publicEntrypoints": [
+    "packages/site-cms/server.mts"
+  ],
+  "includePaths": [
+    "packages"
+  ],
+  "excludeDirs": [
+    ".git",
+    "node_modules",
+    "build",
+    "dist",
+    ".awesome-oci",
+    ".holo-ci-runtime"
+  ],
+  "forbiddenImports": [
+    "WidevineCdm",
+    "optimization_guide_internal",
+    "GoogleUpdate"
+  ],
+  "maxParentTraversals": 4,
+  "scanSourceHttpIpc": false
+}

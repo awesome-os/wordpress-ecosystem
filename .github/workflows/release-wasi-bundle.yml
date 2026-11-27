@@ -228,7 +228,7 @@ jobs:
             --clobber
 
       - name: Attest SLSA Build Provenance for Real WASI Bundle
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             dist/wasi-bundle/sqlite3-wasm32-wasi.wasm

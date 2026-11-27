@@ -1,3 +1,5 @@
+<!-- DOC-STATIC-CORPUS -->
+
 # WordPress-JS & Sovereign CMS Consolidation Audit
 
 > **Canonical Target:** [`awesome-os/wordpress-ecosystem`](https://github.com/awesome-os/wordpress-ecosystem)  

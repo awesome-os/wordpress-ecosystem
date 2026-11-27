@@ -5,6 +5,7 @@
   "tests": [
     "node --test packages/wp-env-wasi/wp-env-wasi.test.mts",
     "node --test packages/wp-env-wasi/wasi-runtime-exec.test.mts",
+    "node --test packages/wp-env-wasi/wasi-bundle-release.test.mts",
     "node --test packages/wp-block-compiler/wp-block-compiler.test.mts",
     "node --test packages/gutenberg-bridge/gutenberg-app.test.mts",
     "node --test packages/site-cms/cms-core.test.mts",

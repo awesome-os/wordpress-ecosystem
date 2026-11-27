@@ -19,11 +19,26 @@ jobs:
       holo-ci-ref: v1
       runner-tier: lite
       e2e-command: |
-        node --test packages/wp-env-wasi/wp-env-wasi.test.mts packages/wp-block-compiler/wp-block-compiler.test.mts packages/gutenberg-bridge/gutenberg-app.test.mts packages/site-cms/cms-core.test.mts packages/site-cms/server.test.mts
+        node --input-type=module -e "
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const outDir = '/tmp/wp-wasi-live';
+          fs.mkdirSync(outDir, { recursive: true });
+          const base = 'https://github.com/awesome-os/wordpress-ecosystem/releases/download/v11-wp-wasi-latest';
+          for (const name of ['SHA512SUMS.txt', 'sqlite3-wasm32-wasi.wasm', 'php-wasm32-wasi.wasm', 'ruby-wasm32-wasi.wasm']) {
+            const res = await fetch(base + '/' + name);
+            if (!res.ok) throw new Error('Failed to fetch ' + name + ': HTTP ' + res.status);
+            const buf = Buffer.from(await res.arrayBuffer());
+            fs.writeFileSync(path.join(outDir, name), buf);
+            console.log('Fetched', name, buf.byteLength, 'bytes');
+          }
+        "
+        HOLO_WP_WASI_LIVE_DIR=/tmp/wp-wasi-live node --test packages/wp-env-wasi/wp-env-wasi.test.mts packages/wp-env-wasi/wasi-runtime-exec.test.mts packages/wp-block-compiler/wp-block-compiler.test.mts packages/gutenberg-bridge/gutenberg-app.test.mts packages/site-cms/cms-core.test.mts packages/site-cms/server.test.mts
         node --input-type=module -e "
           import fs from 'node:fs';
           import assert from 'node:assert/strict';
           import { compilePageToHtml } from './packages/wp-block-compiler/wp-block-compiler.mts';
+          import { verifyWasiBundleDir } from './packages/wp-env-wasi/wasi-runtime-exec.mts';
           const html = compilePageToHtml({
             title: 'Holo-E2E Gutenberg Preview',
             slug: 'holo-e2e-preview',
@@ -33,4 +48,7 @@ jobs:
           });
           assert.ok(html.includes('<b8g-section'));
           fs.writeFileSync(process.env.HOLO_E2E_ARTIFACTS + '/gutenberg-preview.html', html, 'utf8');
+          const proof = await verifyWasiBundleDir('/tmp/wp-wasi-live');
+          fs.writeFileSync(process.env.HOLO_E2E_ARTIFACTS + '/wasi-exec-proof.json', JSON.stringify(proof, null, 2) + '\n', 'utf8');
+          console.log('WASI_EXEC_PROOF', JSON.stringify({ sqlite3: proof.sqlite3.version, ruby: proof.ruby.stdout.trim(), phpSymbols: proof.php.phpSymbolCount }));
         "
